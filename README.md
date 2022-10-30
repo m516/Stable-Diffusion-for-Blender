@@ -1,4 +1,5 @@
 # Stable-Diffusion-for-Blender
+# !!! Deprecated in favor of [Dream Textures](https://github.com/carson-katri/dream-textures)
 A Blender UI for Stable Diffusion. Everything runs locally on your machine, so all the power of Blender and Stable Diffusion is completely in your hands.
 
 ![banner](docs/screenshot_banner.jpg)
