@@ -1,0 +1,185 @@
+import bpy
+
+
+
+class InstallStableDiffusion(bpy.types.Operator):
+    bl_idname = "stable_diffusion.install"
+    bl_label = "Install Stable Diffusion"
+    # Options: https://docs.blender.org/api/current/bpy_types_enum_items/operator_type_flag_items.html#rna-enum-operator-type-flag-items
+    bl_options = {"REGISTER"} 
+    
+    def invoke(self, context, event):    
+        import subprocess, sys, os
+        try:
+            del numpy # Need to unload numpy so Python doesn't use its DLLs. 
+        except:       # Important because Diffusers seems to write to it
+            pass
+        python_exe = os.path.join(sys.prefix, 'bin', 'python.exe')
+        target = os.path.join(sys.prefix, 'lib', 'site-packages')
+        subprocess.call([python_exe, "-m", "ensurepip"])
+        subprocess.call([python_exe, "-m", "pip", "install", "--upgrade", "pip"])
+        subprocess.call([python_exe, "-m", "pip", "install", "--upgrade", 'diffusers==0.6.0', 'transformers', 'ftfy', 'gradio', 'torch', 'Pillow', '--target', target])
+        if subprocess.call([python_exe, "-m", "pip", "install", "--upgrade",'transformers', '--target', target]):
+            raise Exception('''
+            Error installing transformers. 
+            This is likely because transformers tries to overwrite a Numpy DLL that is currently in use.
+            Try restarting Blender without loading other add-ons and rerunning this script. 
+            ''')
+        return {"FINISHED"}
+
+
+
+
+class UseStableDiffusion(bpy.types.Operator):
+    bl_idname = "stable_diffusion.use"
+    bl_label = "Generate image"
+    bl_options = {"REGISTER"} 
+    
+    def invoke(self, context, event):
+        
+        prompt = "Digital concept art of an anthropomorphic bear, Pixar"
+        
+        
+        # STEP 0: Imports
+        try:
+            from diffusers import StableDiffusionPipeline
+            from PIL import Image
+            from itertools import chain
+        except e:
+            raise Exception("The libraries for Stable Diffusion weren't installed correctly: " + str(e))
+
+        # STEP 1: Generate the contents of the image
+        try:
+            pipe = StableDiffusionPipeline.from_pretrained(
+                bpy.context.scene.stable_diffusion_path,
+                use_auth_token=bpy.context.scene.stable_diffusion_huggingface_auth_token
+            )
+        except e:
+            raise Exception("Failed to create Stable Diffusion pipe. Have you set the HuggingFace API token? " + str(e))
+            
+        
+        image = pipe(
+            prompt=bpy.context.scene.stable_diffusion_prompt_positive,
+            negative_prompt=bpy.context.scene.stable_diffusion_prompt_negative
+        ).to(bpy.context.scene.stable_diffusion_device).images[0].convert("RGBA")
+        image = image.transpose(Image.Transpose.FLIP_TOP_BOTTOM)
+           
+        # STEP 2: Make the output image
+        filename = bpy.context.scene.stable_diffusion_output_name
+        if filename == "<same_as_prompt>":
+            filename = bpy.context.scene.stable_diffusion_prompt_positive
+        
+        try: # Remove the existing image if need be
+            bpy.data.images.remove(bpy.data.images[prompt])
+        except:
+            pass
+        bpy.ops.image.new(name=prompt, width=image.width, height=image.height, tiled=False)
+
+        
+        # STEP 3: Shove the generated pixels into the Blender image
+        bpy.data.images[prompt].pixels = [i/255 for i in list(chain.from_iterable(image.getdata()))]
+
+        
+        return {"FINISHED"}
+        
+
+
+
+
+class StableDiffusionPanel(bpy.types.Panel):
+    """Creates a Panel in the scene context of the properties editor"""
+    bl_label = "Stable Diffusion"
+    bl_idname = "SCENE_PT_stable_diffusion_layout"
+    bl_space_type = 'PROPERTIES'
+    bl_region_type = 'WINDOW'
+    bl_context = "scene"
+    
+
+
+
+    def draw(self, context):
+        layout = self.layout
+
+        scene = context.scene
+        layout.label(text=" Installation:")
+        layout.prop(context.scene, "stable_diffusion_path")
+        layout.prop(context.scene, "stable_diffusion_huggingface_auth_token")
+        layout.operator("stable_diffusion.install")
+        
+        layout.label(text=" Diffuse!")
+        layout.prop(context.scene, "stable_diffusion_prompt_positive")
+        layout.prop(context.scene, "stable_diffusion_prompt_negative")
+        
+        row = layout.row(align=True)
+        row.scale_y = 3.0
+        row.operator("stable_diffusion.use")
+        layout.prop(context.scene, "stable_diffusion_output_name")
+
+
+def register():
+    bpy.utils.register_class(InstallStableDiffusion)
+    bpy.utils.register_class(UseStableDiffusion)
+    bpy.utils.register_class(StableDiffusionPanel)
+    
+    bpy.types.Scene.stable_diffusion_huggingface_auth_token = bpy.props.StringProperty \
+      (
+        name = "HuggingFace API Authorization Token",
+        description = '''
+        This is a token generated by you to use your HuggingFace account from a command line.
+        Link to access your HuggingFace token: https://huggingface.co/settings/tokens.
+        
+        Should start with "hf_"
+        ''',
+        default = "<insert_token_here>"
+      )
+    
+    bpy.types.Scene.stable_diffusion_path = bpy.props.StringProperty \
+      (
+        name = "Stable Diffusion Path",
+        description = '''The path to the Stable Diffusion repository. 
+                        When this isn't a path, we search for a matching 
+                        HuggingFace repository
+                        ''',
+        default = "CompVis/stable-diffusion-v1-4"
+      )
+      
+      
+    bpy.types.Scene.stable_diffusion_prompt_positive = bpy.props.StringProperty \
+      (
+        name = "Prompt",
+        description = '''What the image should be of ''',
+        default = "a photograph of an astronaut riding a horse"
+      )
+      
+      
+    bpy.types.Scene.stable_diffusion_output_name = bpy.props.StringProperty \
+      (
+        name = "Filename",
+        description = '''The name of the image. Defaults to the prompt ''',
+        default = "<same_as_prompt>"
+      )
+      
+    bpy.types.Scene.stable_diffusion_prompt_negative = bpy.props.StringProperty \
+      (
+        name = "Negative prompt",
+        description = '''What the image should NOT be of ''',
+        default = ""
+      )
+      
+    bpy.types.Scene.stable_diffusion_device = bpy.props.StringProperty \
+      (
+        name = "Device",
+        description = '''What device to use Stable Diffusion on. Must be one of: CPU, cuda, TPU''',
+        default = "cpu"
+      )
+
+
+def unregister():
+    bpy.utils.unregister_class(InstallStableDiffusion)
+    bpy.utils.unregister_class(UseStableDiffusion)
+    bpy.utils.unregister_class(StableDiffusionPanel)
+
+
+if __name__ == "__main__":
+    register()
+    
