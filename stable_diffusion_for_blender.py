@@ -54,6 +54,7 @@ class UseStableDiffusion(bpy.types.Operator):
                 bpy.context.scene.stable_diffusion_path,
                 use_auth_token=bpy.context.scene.stable_diffusion_huggingface_auth_token
             )
+            pipe.to(bpy.context.scene.stable_diffusion_device)
         except e:
             raise Exception("Failed to create Stable Diffusion pipe. Have you set the HuggingFace API token? " + str(e))
             
@@ -61,7 +62,7 @@ class UseStableDiffusion(bpy.types.Operator):
         image = pipe(
             prompt=bpy.context.scene.stable_diffusion_prompt_positive,
             negative_prompt=bpy.context.scene.stable_diffusion_prompt_negative
-        ).to(bpy.context.scene.stable_diffusion_device).images[0].convert("RGBA")
+        ).images[0].convert("RGBA")
         image = image.transpose(Image.Transpose.FLIP_TOP_BOTTOM)
            
         # STEP 2: Make the output image
@@ -114,6 +115,7 @@ class StableDiffusionPanel(bpy.types.Panel):
         row.scale_y = 3.0
         row.operator("stable_diffusion.use")
         layout.prop(context.scene, "stable_diffusion_output_name")
+        layout.prop(context.scene, "stable_diffusion_device")
 
 
 def register():
